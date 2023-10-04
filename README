@@ -1,0 +1,9 @@
+```sh
+docker build -t ubuntu:v1 .
+docker run --privileged -it ubuntu:v1 -v ./origin_output:/opt/origin_output
+```
+
+进入docker ubuntu的shell后，执行
+```sh
+bash fuzz_all.sh
+```
