@@ -609,17 +609,17 @@ u8 fuzz_one_original(afl_state_t *afl) {
   
   input_sequence[len] = '\0';
   	
-  FILE *in_fp = fopen("/root/IoT/AFLplusplus/in.txt","w");
+  FILE *in_fp = fopen("/opt/src/in.txt","w");
   
   fprintf(in_fp, "%s", input_sequence);
   
   fclose(in_fp);
   
-  int check_system = system("cd /root/IoT/AFLplusplus && python moduleload-TT.py");
+  int check_system = system("cd /opt/src && python moduleload-TT.py");
   if (check_system == -1)
     exit(1);
   
-  FILE * out_fp = fopen("/root/IoT/AFLplusplus/out.txt","r");
+  FILE * out_fp = fopen("/opt/src/out.txt","r");
   
   fseek(out_fp , 0 , SEEK_END);
   u32 lSize = ftell (out_fp);

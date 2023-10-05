@@ -69,7 +69,7 @@ def run(data):
     model = None
     try:
         # 这里得是绝对路径
-        model = torch.load('/root/IoT/AFLplusplus/TTnet.pth', map_location=device)
+        model = torch.load('./TTnet.pth', map_location=device)
     except Exception as e:
         writefragment(e)
         print(e)

@@ -1,5 +1,6 @@
 #!/bin/bash
 
+TARGET_FILE=unrar
 cur_root=`pwd`
 dirlist=`find ./ -type d -name '*root*'`
 echo core >/proc/sys/kernel/core_pattern
@@ -15,7 +16,7 @@ do
         fuzz_out="/opt/origin_output"
         mkdir -p $fuzz_in
         mkdir -p $fuzz_out
-        if grep -q "unrar" "$file"; then
+        if grep -q "$TARGET_FILE" "$file"; then
             afl-fuzz -D -i $fuzz_in -o $fuzz_out -Q "$file" e @@
         fi
     done
