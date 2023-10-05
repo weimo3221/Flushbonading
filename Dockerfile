@@ -21,7 +21,7 @@ WORKDIR /opt/binwalk_tools/yaffshiv
 RUN python3 setup.py install
 RUN pip3 install jefferson ubi_reader
 
-RUN cp /opt/scripts/auto-extract.sh /opt/firmwares
+RUN cp /opt/scripts/* /opt/firmwares
 WORKDIR /opt/firmwares
 RUN bash auto-extract.sh
 
@@ -33,6 +33,5 @@ ENV CPU_TARGET arm
 RUN sh build_qemu_support.sh
 RUN cp ../afl-qemu-trace /usr/local/bin
 
-RUN cp /opt/scripts/fuzz_all.sh /opt/firmwares
 WORKDIR /opt/firmwares
 CMD bash
