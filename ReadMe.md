@@ -61,6 +61,9 @@ python csv_output.py
 python train_model.py -encoder LSTM -decoder LSTM -dataset ./data.csv
 # 训练Transformer+Transformer的seq2seq模型，用的data.csv数据集
 python train_model.py -encoder Transformer -decoder Transformer -dataset ./data.csv
+# 测试模型是否有效的数据集test_seq_100.csv
+python train_model.py -encoder Transformer -decoder Transformer -dataset ./test_seq_100.csv
+python train_model.py -encoder LSTM -decoder LSTM -dataset ./test_seq_100.csv
 ~~~
 
 3. 训练完成后我们能够在module_data和csv_data下面看到训练好的模型以及训练时的准确率变化数据
