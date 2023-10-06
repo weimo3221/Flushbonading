@@ -15,6 +15,7 @@ RUN apt install mtd-utils gzip bzip2 tar arj lhasa p7zip p7zip-full cabextract c
 RUN pip3 config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 
 COPY ./ /opt/
+RUN echo "gitdir: ../../.git/modules/qemu_mode/qemuafl" > /opt/AFLplusplus/qemu_mode/qemuafl/.git
 WORKDIR /opt/binwalk_tools/sasquatch
 RUN bash build.sh
 WORKDIR /opt/binwalk_tools/yaffshiv
