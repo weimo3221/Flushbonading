@@ -1,0 +1,6 @@
+# environment variables:
+AFL_CUSTOM_INFO_PROGRAM=./home/telnet/unrar
+AFL_CUSTOM_INFO_PROGRAM_ARGV=e @@
+AFL_CUSTOM_INFO_OUT=/opt/origin_output/default
+# command line:
+'afl-fuzz' '-D' '-i' './home/telnet/unrar_fuzz-in' '-o' '/opt/origin_output' '-Q' './home/telnet/unrar' 'e' '@@'

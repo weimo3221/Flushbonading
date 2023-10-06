@@ -1,8 +1,13 @@
 #!/bin/bash
 
-TARGET_FILE=unrar
+if [ ! -n "$TARGET_FILE" ]; then
+    TARGET_FILE=unrar
+fi
+if [ ! -n "$TARGET_BIN" ]; then
+    TARGET_BIN=123
+fi
 cur_root=`pwd`
-dirlist=`find ./ -type d -name '*root*'`
+dirlist=`find ./ -type d -name '*root*' | grep $TARGET_BIN`
 echo core >/proc/sys/kernel/core_pattern
 
 for dir in $dirlist 

@@ -6,7 +6,7 @@
 - origin_output: 普通AFL系统输出数据集的存放地，用于输入进Seq2Seq模型
 - scripts:
 - - auto-extract.sh: 自动提取当前目录固件，build阶段进行
-- - fuzz-all.sh: 环境变量`TARGET_FILE`存放待fuzz文件，build完成后，进入docker运行
+- - fuzz-all.sh: 环境变量`TARGET_FILE`存放待fuzz文件，`TARGET_BIN`存放待fuzz固件，build完成后，进入docker运行
 - - switchAFL.sh: 优化漏洞检测系统中进行AFL++的源码切换
 - src: 加载模型的相关代码
 - Dockerfile: docker部署命令，主要包含
