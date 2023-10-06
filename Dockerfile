@@ -16,7 +16,7 @@ RUN pip3 config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 
 COPY ./ /opt/
 WORKDIR /opt/binwalk_tools/sasquatch
-# RUN bash build.sh
+RUN bash build.sh
 WORKDIR /opt/binwalk_tools/yaffshiv
 RUN python3 setup.py install
 RUN pip3 install jefferson ubi_reader

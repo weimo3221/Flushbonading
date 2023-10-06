@@ -21,6 +21,7 @@ do
         fuzz_out="/opt/origin_output"
         mkdir -p $fuzz_in
         mkdir -p $fuzz_out
+        rm -rf "${fuzz_out}/*"
         if grep -q "$TARGET_FILE" "$file"; then
             afl-fuzz -D -i $fuzz_in -o $fuzz_out -Q "$file" e @@
         fi
