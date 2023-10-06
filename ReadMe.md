@@ -2,7 +2,7 @@
 
 - AFLplusplus: 集成了QEMU MODE下AFL++的源代码，优化漏洞检测系统中将会基于此代码进行修改
 - binwalk_tools: 部署适应多文件系统的binwalk所需提取工具
-- firmwares: 测试系统所用固件
+- firmwares: 测试系统所用固件和两个测试优化AFL效果的程序objdump和readelf
 - origin_output: 普通AFL系统输出数据集的存放地，用于输入进Seq2Seq模型
 - scripts:
 - - auto-extract.sh: 自动提取当前目录固件，build阶段进行
