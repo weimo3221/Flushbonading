@@ -19,7 +19,7 @@
 docker部署命令
 ```sh
 docker build -t ubuntu:v1 .
-docker run --privileged -it ubuntu:v1 -v ./origin_output:/opt/origin_output
+docker run --privileged -v ./origin_output:/opt/origin_output -it ubuntu:v1 
 ```
 
 docker run后，会进入docker ubuntu的shell，部署普通AFL系统
@@ -85,11 +85,23 @@ einops: 0.6.1
 
 ## 优化漏洞检测系统部署测试
 
-训练完成后，将已有模型保存命名为TTnet.pth，存放在/opt/src下，更换AFL++源码
+### LSTM+LSTM
+训练完成后，如果使用LSTM+LSTM的seq2seq模型进行的训练，将编码模型与解码模型分别保存命名为LLDnet.pth、LLEnet.pth，存放在/opt/src下；
+完成后，使用如下命令更换AFL++源码
 ```sh
-bash switchAFL.sh
+bash switchAFL.sh LL
 ```
-部署优化漏洞检测系统
+
+### Transformer+Transformer
+如果使用Transformer+Transformer的seq2seq模型进行的训练，将生成模型保存命名为TTnet.pth，存放在/opt/src下；
+完成后，使用如下命令更换AFL++源码
+```sh
+bash switchAFL.sh TT
+```
+
+### 部署优化漏洞检测系统
+
+使用如下命令做部署
 ```sh
 bash fuzz-all.sh
 ```

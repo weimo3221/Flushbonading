@@ -67,8 +67,8 @@ def run(data):
     decoder = None
     try:
         # 这里得是绝对路径
-        encoder = torch.load('/root/IoT/AFLplusplus/LLEnet.pth', map_location=device)
-        decoder = torch.load('/root/IoT/AFLplusplus/LLDnet.pth', map_location=device)
+        encoder = torch.load('./LLEnet.pth', map_location=device)
+        decoder = torch.load('./LLDnet.pth', map_location=device)
     except Exception as e:
         writefragment(e)
         print(e)
