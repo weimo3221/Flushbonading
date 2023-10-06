@@ -103,6 +103,12 @@ bash switchAFL.sh LL
 bash switchAFL.sh TT
 ```
 
+### 原始版本
+在完成一个程序的fuzz后，如需开启另一个程序的fuzz，可使用如下命令切换回原版
+```sh
+bash switchAFL.sh origin
+```
+
 ### 部署优化漏洞检测系统
 
 使用如下命令做部署

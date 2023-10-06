@@ -31,6 +31,15 @@
 
 /* MOpt */
 
+char* update_outputseq(char* outputseq, char* count)
+{
+  while (!strncmp(outputseq, count, 3))
+  {
+    outputseq += 6;
+  }
+  return outputseq;
+}
+
 static int select_algorithm(afl_state_t *afl, u32 max_algorithm) {
 
   int i_puppet, j_puppet = 0, operator_number = max_algorithm;
@@ -572,7 +581,60 @@ u8 fuzz_one_original(afl_state_t *afl) {
   }
 
   doing_det = 1;
+  // pbegin
 
+  char input_sequence[1000000];
+  
+  char* output_sequence;
+  
+  u32 null_output = 0;
+  u32 result_point = 0;
+  // 0是
+  
+  for (i = 0; i < len; i++){
+    u8 first = out_buf[i] / 16;
+    
+    u8 last = out_buf[i] % 16;
+    
+    if (first <= 9)
+      input_sequence[i * 2] = '0' + first;
+    else if(first >= 10 && first <= 15)
+      input_sequence[i * 2] = 'a' + first - 10;
+    
+    if (last <= 9)
+      input_sequence[i * 2 + 1] = '0' + last;
+    else if(last >= 10 && last <= 15)
+      input_sequence[i * 2 + 1] = 'a' + last - 10;
+  }
+  
+  input_sequence[len] = '\0';
+  	
+  FILE *in_fp = fopen("/opt/src/in.txt","w");
+  
+  fprintf(in_fp, "%s", input_sequence);
+  
+  fclose(in_fp);
+  
+  int check_system = system("cd /opt/src && python moduleload-TT.py");
+  if (check_system == -1)
+    exit(1);
+  
+  FILE * out_fp = fopen("/opt/src/out.txt","r");
+  
+  fseek(out_fp , 0 , SEEK_END);
+  u32 lSize = ftell (out_fp);
+  rewind (out_fp);
+  
+  if (lSize == 0)
+    null_output = 1;
+  // 判断out.txt中是否是空
+
+  output_sequence = malloc(lSize);
+  fread(output_sequence, 1, lSize, out_fp);
+  
+  fclose(out_fp);
+
+  // pend
   /*********************************************
    * SIMPLE BITFLIP (+dictionary construction) *
    *********************************************/
@@ -604,111 +666,143 @@ u8 fuzz_one_original(afl_state_t *afl) {
   _prev_cksum = prev_cksum;
 
   /* Now flip bits. */
-
-  for (afl->stage_cur = 0; afl->stage_cur < afl->stage_max; ++afl->stage_cur) {
-
-    afl->stage_cur_byte = afl->stage_cur >> 3;
-
-    FLIP_BIT(out_buf, afl->stage_cur);
-
-#ifdef INTROSPECTION
-    snprintf(afl->mutation, sizeof(afl->mutation), "%s FLIP_BIT1-%u",
-             afl->queue_cur->fname, afl->stage_cur);
-#endif
-
-    if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
-
-    FLIP_BIT(out_buf, afl->stage_cur);
-
-    /* While flipping the least significant bit in every byte, pull of an extra
-       trick to detect possible syntax tokens. In essence, the idea is that if
-       you have a binary blob like this:
-
-       xxxxxxxxIHDRxxxxxxxx
-
-       ...and changing the leading and trailing bytes causes variable or no
-       changes in program flow, but touching any character in the "IHDR" string
-       always produces the same, distinctive path, it's highly likely that
-       "IHDR" is an atomically-checked magic value of special significance to
-       the fuzzed format.
-
-       We do this here, rather than as a separate stage, because it's a nice
-       way to keep the operation approximately "free" (i.e., no extra execs).
-
-       Empirically, performing the check when flipping the least significant bit
-       is advantageous, compared to doing it at the time of more disruptive
-       changes, where the program flow may be affected in more violent ways.
-
-       The caveat is that we won't generate dictionaries in the -d mode or -S
-       mode - but that's probably a fair trade-off.
-
-       This won't work particularly well with paths that exhibit variable
-       behavior, but fails gracefully, so we'll carry out the checks anyway.
-
-      */
-
-    if (!afl->non_instrumented_mode && (afl->stage_cur & 7) == 7) {
-
-      u64 cksum = hash64(afl->fsrv.trace_bits, afl->fsrv.map_size, HASH_CONST);
-
-      if (afl->stage_cur == afl->stage_max - 1 && cksum == prev_cksum) {
-
-        /* If at end of file and we are still collecting a string, grab the
-           final character and force output. */
-
-        if (a_len < MAX_AUTO_EXTRA) {
-
-          a_collect[a_len] = out_buf[afl->stage_cur >> 3];
-
-        }
-
-        ++a_len;
-
-        if (a_len >= MIN_AUTO_EXTRA && a_len <= MAX_AUTO_EXTRA) {
-
-          maybe_add_auto(afl, a_collect, a_len);
-
-        }
-
-      } else if (cksum != prev_cksum) {
-
-        /* Otherwise, if the checksum has changed, see if we have something
-           worthwhile queued up, and collect that if the answer is yes. */
-
-        if (a_len >= MIN_AUTO_EXTRA && a_len <= MAX_AUTO_EXTRA) {
-
-          maybe_add_auto(afl, a_collect, a_len);
-
-        }
-
-        a_len = 0;
-        prev_cksum = cksum;
-
+  // pbegin
+  u32 counter = 0;
+  // counter这里是为了UI上面的显示
+  if (strstr(output_sequence, "001"))
+    result_point = (u32)(strstr(output_sequence, "001") - output_sequence);
+  else
+    result_point = 3;
+  char str[4];
+  char* endstr;
+  if (result_point / 3 % 2 == 0 && !null_output) {
+    
+    u32 check_pos = 1;
+    while (check_pos == 1) {
+      
+      if (result_point >= strlen(output_sequence))
+        break;
+      if (output_sequence[result_point + 2] != '1') {
+        output_sequence = output_sequence + result_point;
+        break;
       }
+      
 
-      /* Continue collecting string, but only if the bit flip actually made
-         any difference - we don't want no-op tokens. */
+      str[0] = output_sequence[result_point + 3];
+      str[1] = output_sequence[result_point + 4];
+      str[2] = output_sequence[result_point + 5];
+      str[3] = '\0';
 
-      if (cksum != _prev_cksum) {
+      afl->stage_cur = strtol(str, &endstr, 16);
+      afl->stage_cur_byte = afl->stage_cur >> 3;
+      if (afl->stage_cur >= afl->stage_max) {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+      
+      FLIP_BIT(out_buf, afl->stage_cur);
+      
+            counter += 1;
+      result_point += 6;
 
-        if (a_len < MAX_AUTO_EXTRA) {
+  #ifdef INTROSPECTION
+      snprintf(afl->mutation, sizeof(afl->mutation), "%s FLIP_BIT1-%u",
+              afl->queue_cur->fname, afl->stage_cur);
+  #endif
 
-          a_collect[a_len] = out_buf[afl->stage_cur >> 3];
+      if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+      FLIP_BIT(out_buf, afl->stage_cur);
+
+      /* While flipping the least significant bit in every byte, pull of an extra
+        trick to detect possible syntax tokens. In essence, the idea is that if
+        you have a binary blob like this:
+
+        xxxxxxxxIHDRxxxxxxxx
+
+        ...and changing the leading and trailing bytes causes variable or no
+        changes in program flow, but touching any character in the "IHDR" string
+        always produces the same, distinctive path, it's highly likely that
+        "IHDR" is an atomically-checked magic value of special significance to
+        the fuzzed format.
+
+        We do this here, rather than as a separate stage, because it's a nice
+        way to keep the operation approximately "free" (i.e., no extra execs).
+
+        Empirically, performing the check when flipping the least significant bit
+        is advantageous, compared to doing it at the time of more disruptive
+        changes, where the program flow may be affected in more violent ways.
+
+        The caveat is that we won't generate dictionaries in the -d mode or -S
+        mode - but that's probably a fair trade-off.
+
+        This won't work particularly well with paths that exhibit variable
+        behavior, but fails gracefully, so we'll carry out the checks anyway.
+
+        */
+
+      if (!afl->non_instrumented_mode && (afl->stage_cur & 7) == 7) {
+
+        u64 cksum = hash64(afl->fsrv.trace_bits, afl->fsrv.map_size, HASH_CONST);
+
+        if (afl->stage_cur == afl->stage_max - 1 && cksum == prev_cksum) {
+
+          /* If at end of file and we are still collecting a string, grab the
+            final character and force output. */
+
+          if (a_len < MAX_AUTO_EXTRA) {
+
+            a_collect[a_len] = out_buf[afl->stage_cur >> 3];
+
+          }
+
+          ++a_len;
+
+          if (a_len >= MIN_AUTO_EXTRA && a_len <= MAX_AUTO_EXTRA) {
+
+            maybe_add_auto(afl, a_collect, a_len);
+
+          }
+
+        } else if (cksum != prev_cksum) {
+
+          /* Otherwise, if the checksum has changed, see if we have something
+            worthwhile queued up, and collect that if the answer is yes. */
+
+          if (a_len >= MIN_AUTO_EXTRA && a_len <= MAX_AUTO_EXTRA) {
+
+            maybe_add_auto(afl, a_collect, a_len);
+
+          }
+
+          a_len = 0;
+          prev_cksum = cksum;
 
         }
 
-        ++a_len;
+        /* Continue collecting string, but only if the bit flip actually made
+          any difference - we don't want no-op tokens. */
+
+        if (cksum != _prev_cksum) {
+
+          if (a_len < MAX_AUTO_EXTRA) {
+
+            a_collect[a_len] = out_buf[afl->stage_cur >> 3];
+
+          }
+
+          ++a_len;
+
+        }
 
       }
 
     }
-
   }
-
   new_hit_cnt = afl->queued_items + afl->saved_crashes;
-
+  output_sequence = update_outputseq(output_sequence, "001");
   afl->stage_finds[STAGE_FLIP1] += new_hit_cnt - orig_hit_cnt;
-  afl->stage_cycles[STAGE_FLIP1] += afl->stage_max;
+  afl->stage_cycles[STAGE_FLIP1] += counter;
+  // pend
 #ifdef INTROSPECTION
   afl->queue_cur->stats_mutated += afl->stage_max;
 #endif
@@ -720,30 +814,61 @@ u8 fuzz_one_original(afl_state_t *afl) {
   afl->stage_max = (len << 3) - 1;
 
   orig_hit_cnt = new_hit_cnt;
+  // pbegin
+  counter = 0;
+  // counter这里是为了UI上面的显示
+  if (strstr(output_sequence, "002"))
+    result_point = (u32)(strstr(output_sequence, "002") - output_sequence);
+  else
+    result_point = 3;
+  if (result_point / 3 % 2 == 0 && !null_output) {
+    
+    u32 check_pos = 1;
+    while (check_pos == 1) {
+      
+      if (result_point >= strlen(output_sequence))
+        break;
+      if (output_sequence[result_point + 2] != '2') {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+        
+      
 
-  for (afl->stage_cur = 0; afl->stage_cur < afl->stage_max; ++afl->stage_cur) {
+      str[0] = output_sequence[result_point + 3];
+      str[1] = output_sequence[result_point + 4];
+      str[2] = output_sequence[result_point + 5];
+      str[3] = '\0';
 
-    afl->stage_cur_byte = afl->stage_cur >> 3;
+      afl->stage_cur = strtol(str, &endstr, 16);
+      afl->stage_cur_byte = afl->stage_cur >> 3;
+      if (afl->stage_cur >= afl->stage_max) {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+      
+      FLIP_BIT(out_buf, afl->stage_cur);
+      FLIP_BIT(out_buf, afl->stage_cur + 1);
+      
+            counter += 1;
+      result_point += 6;
 
-    FLIP_BIT(out_buf, afl->stage_cur);
-    FLIP_BIT(out_buf, afl->stage_cur + 1);
+  #ifdef INTROSPECTION
+      snprintf(afl->mutation, sizeof(afl->mutation), "%s FLIP_BIT2-%u",
+              afl->queue_cur->fname, afl->stage_cur);
+  #endif
 
-#ifdef INTROSPECTION
-    snprintf(afl->mutation, sizeof(afl->mutation), "%s FLIP_BIT2-%u",
-             afl->queue_cur->fname, afl->stage_cur);
-#endif
+      if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+      FLIP_BIT(out_buf, afl->stage_cur);
+      FLIP_BIT(out_buf, afl->stage_cur + 1);
 
-    if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
-
-    FLIP_BIT(out_buf, afl->stage_cur);
-    FLIP_BIT(out_buf, afl->stage_cur + 1);
-
+    }
   }
-
   new_hit_cnt = afl->queued_items + afl->saved_crashes;
-
+  output_sequence = update_outputseq(output_sequence, "002");
   afl->stage_finds[STAGE_FLIP2] += new_hit_cnt - orig_hit_cnt;
-  afl->stage_cycles[STAGE_FLIP2] += afl->stage_max;
+  afl->stage_cycles[STAGE_FLIP2] += counter;
+  // pend
 #ifdef INTROSPECTION
   afl->queue_cur->stats_mutated += afl->stage_max;
 #endif
@@ -755,34 +880,65 @@ u8 fuzz_one_original(afl_state_t *afl) {
   afl->stage_max = (len << 3) - 3;
 
   orig_hit_cnt = new_hit_cnt;
+  // pbegin
+  counter = 0;
+  // counter这里是为了UI上面的显示
+  if (strstr(output_sequence, "003"))
+    result_point = (u32)(strstr(output_sequence, "003") - output_sequence);
+  else
+    result_point = 3;
+  if (result_point / 3 % 2 == 0 && !null_output) {
+    
+    u32 check_pos = 1;
+    while (check_pos == 1) {
+      
+      if (result_point >= strlen(output_sequence))
+        break;
+      if (output_sequence[result_point + 2] != '3') {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+      
 
-  for (afl->stage_cur = 0; afl->stage_cur < afl->stage_max; ++afl->stage_cur) {
+      str[0] = output_sequence[result_point + 3];
+      str[1] = output_sequence[result_point + 4];
+      str[2] = output_sequence[result_point + 5];
+      str[3] = '\0';
 
-    afl->stage_cur_byte = afl->stage_cur >> 3;
+      afl->stage_cur = strtol(str, &endstr, 16);
+      afl->stage_cur_byte = afl->stage_cur >> 3;
 
-    FLIP_BIT(out_buf, afl->stage_cur);
-    FLIP_BIT(out_buf, afl->stage_cur + 1);
-    FLIP_BIT(out_buf, afl->stage_cur + 2);
-    FLIP_BIT(out_buf, afl->stage_cur + 3);
+      if (afl->stage_cur >= afl->stage_max) {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+      
+      FLIP_BIT(out_buf, afl->stage_cur);
+      FLIP_BIT(out_buf, afl->stage_cur + 1);
+      FLIP_BIT(out_buf, afl->stage_cur + 2);
+      FLIP_BIT(out_buf, afl->stage_cur + 3);
+      
+            counter += 1;
+      result_point += 6;
 
-#ifdef INTROSPECTION
-    snprintf(afl->mutation, sizeof(afl->mutation), "%s FLIP_BIT4-%u",
-             afl->queue_cur->fname, afl->stage_cur);
-#endif
+  #ifdef INTROSPECTION
+      snprintf(afl->mutation, sizeof(afl->mutation), "%s FLIP_BIT4-%u",
+              afl->queue_cur->fname, afl->stage_cur);
+  #endif
 
-    if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+      if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+      FLIP_BIT(out_buf, afl->stage_cur);
+      FLIP_BIT(out_buf, afl->stage_cur + 1);
+      FLIP_BIT(out_buf, afl->stage_cur + 2);
+      FLIP_BIT(out_buf, afl->stage_cur + 3);
 
-    FLIP_BIT(out_buf, afl->stage_cur);
-    FLIP_BIT(out_buf, afl->stage_cur + 1);
-    FLIP_BIT(out_buf, afl->stage_cur + 2);
-    FLIP_BIT(out_buf, afl->stage_cur + 3);
-
+    }
   }
-
   new_hit_cnt = afl->queued_items + afl->saved_crashes;
-
+  output_sequence = update_outputseq(output_sequence, "003");
   afl->stage_finds[STAGE_FLIP4] += new_hit_cnt - orig_hit_cnt;
-  afl->stage_cycles[STAGE_FLIP4] += afl->stage_max;
+  afl->stage_cycles[STAGE_FLIP4] += counter;
+  // pend
 #ifdef INTROSPECTION
   afl->queue_cur->stats_mutated += afl->stage_max;
 #endif
@@ -824,54 +980,86 @@ u8 fuzz_one_original(afl_state_t *afl) {
   orig_hit_cnt = new_hit_cnt;
   prev_cksum = _prev_cksum;
 
-  for (afl->stage_cur = 0; afl->stage_cur < afl->stage_max; ++afl->stage_cur) {
+  // pbegin
+  counter = 0;
+  // counter这里是为了UI上面的显示
+  if (strstr(output_sequence, "004"))
+    result_point = (u32)(strstr(output_sequence, "004") - output_sequence);
+  else
+    result_point = 3;
+  if (result_point / 3 % 2 == 0 && !null_output) {
+    
+    u32 check_pos = 1;
+    while (check_pos == 1) {
+      
+      if (result_point >= strlen(output_sequence))
+        break;
+      if (output_sequence[result_point + 2] != '4') {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+      
 
-    afl->stage_cur_byte = afl->stage_cur;
+      str[0] = output_sequence[result_point + 3];
+      str[1] = output_sequence[result_point + 4];
+      str[2] = output_sequence[result_point + 5];
+      str[3] = '\0';
 
-    out_buf[afl->stage_cur] ^= 0xFF;
+      afl->stage_cur = strtol(str, &endstr, 16);
+      afl->stage_cur_byte = afl->stage_cur;
 
-#ifdef INTROSPECTION
-    snprintf(afl->mutation, sizeof(afl->mutation), "%s FLIP_BIT8-%u",
-             afl->queue_cur->fname, afl->stage_cur);
-#endif
+      if (afl->stage_cur >= afl->stage_max) {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
 
-    if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+      out_buf[afl->stage_cur] ^= 0xFF;
+      
+            counter += 1;
+      result_point += 6;
 
-    /* We also use this stage to pull off a simple trick: we identify
-       bytes that seem to have no effect on the current execution path
-       even when fully flipped - and we skip them during more expensive
-       deterministic stages, such as arithmetics or known ints. */
+  #ifdef INTROSPECTION
+      snprintf(afl->mutation, sizeof(afl->mutation), "%s FLIP_BIT8-%u",
+              afl->queue_cur->fname, afl->stage_cur);
+  #endif
 
-    if (!eff_map[EFF_APOS(afl->stage_cur)]) {
+      if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
 
-      u64 cksum;
+      /* We also use this stage to pull off a simple trick: we identify
+        bytes that seem to have no effect on the current execution path
+        even when fully flipped - and we skip them during more expensive
+        deterministic stages, such as arithmetics or known ints. */
 
-      /* If in non-instrumented mode or if the file is very short, just flag
-         everything without wasting time on checksums. */
+      if (!eff_map[EFF_APOS(afl->stage_cur)]) {
 
-      if (!afl->non_instrumented_mode && len >= EFF_MIN_LEN) {
+        u64 cksum;
 
-        cksum = hash64(afl->fsrv.trace_bits, afl->fsrv.map_size, HASH_CONST);
+        /* If in non-instrumented mode or if the file is very short, just flag
+          everything without wasting time on checksums. */
 
-      } else {
+        if (!afl->non_instrumented_mode && len >= EFF_MIN_LEN) {
 
-        cksum = ~prev_cksum;
+          cksum = hash64(afl->fsrv.trace_bits, afl->fsrv.map_size, HASH_CONST);
+
+        } else {
+
+          cksum = ~prev_cksum;
+
+        }
+
+        if (cksum != prev_cksum) {
+
+          eff_map[EFF_APOS(afl->stage_cur)] = 1;
+          ++eff_cnt;
+
+        }
 
       }
 
-      if (cksum != prev_cksum) {
-
-        eff_map[EFF_APOS(afl->stage_cur)] = 1;
-        ++eff_cnt;
-
-      }
+      out_buf[afl->stage_cur] ^= 0xFF;
 
     }
-
-    out_buf[afl->stage_cur] ^= 0xFF;
-
   }
-
   /* If the effector map is more than EFF_MAX_PERC dense, just flag the
      whole thing as worth fuzzing, since we wouldn't be saving much time
      anyway. */
@@ -892,9 +1080,10 @@ u8 fuzz_one_original(afl_state_t *afl) {
   afl->blocks_eff_total += EFF_ALEN(len);
 
   new_hit_cnt = afl->queued_items + afl->saved_crashes;
-
+  output_sequence = update_outputseq(output_sequence, "004");
   afl->stage_finds[STAGE_FLIP8] += new_hit_cnt - orig_hit_cnt;
-  afl->stage_cycles[STAGE_FLIP8] += afl->stage_max;
+  afl->stage_cycles[STAGE_FLIP8] += counter;
+  // pend
 #ifdef INTROSPECTION
   afl->queue_cur->stats_mutated += afl->stage_max;
 #endif
@@ -910,37 +1099,70 @@ u8 fuzz_one_original(afl_state_t *afl) {
 
   orig_hit_cnt = new_hit_cnt;
 
-  for (i = 0; i < len - 1; ++i) {
+  // pbegin
+  counter = 0;
+  // counter这里是为了UI上面的显示
+  if (strstr(output_sequence, "005"))
+    result_point = (u32)(strstr(output_sequence, "005") - output_sequence);
+  else
+    result_point = 3;
+  if (result_point / 3 % 2 == 0 && !null_output) {
+    
+    u32 check_pos = 1;
+    while (check_pos == 1) {
+      
+      counter++;
+      if (result_point >= strlen(output_sequence))
+        break;
+      if (output_sequence[result_point + 2] != '5') {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+      
+      /* Let's consult the effector map... */
+      str[0] = output_sequence[result_point + 3];
+      str[1] = output_sequence[result_point + 4];
+      str[2] = output_sequence[result_point + 5];
+      str[3] = '\0';
 
-    /* Let's consult the effector map... */
+      i = strtol(str, &endstr, 16);
+      if (i >= len - 1) {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+      
+      result_point += 6;
+      if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)]) {
 
-    if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)]) {
+        --afl->stage_max;
+        --counter;
+        continue;
 
-      --afl->stage_max;
-      continue;
+      }
+
+      afl->stage_cur_byte = i;
+
+      *(u16 *)(out_buf + i) ^= 0xFFFF;
+      
+      
+
+  #ifdef INTROSPECTION
+      snprintf(afl->mutation, sizeof(afl->mutation), "%s FLIP_BIT16-%u",
+              afl->queue_cur->fname, afl->stage_cur);
+  #endif
+
+      if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+      ++afl->stage_cur;
+
+      *(u16 *)(out_buf + i) ^= 0xFFFF;
 
     }
-
-    afl->stage_cur_byte = i;
-
-    *(u16 *)(out_buf + i) ^= 0xFFFF;
-
-#ifdef INTROSPECTION
-    snprintf(afl->mutation, sizeof(afl->mutation), "%s FLIP_BIT16-%u",
-             afl->queue_cur->fname, afl->stage_cur);
-#endif
-
-    if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
-    ++afl->stage_cur;
-
-    *(u16 *)(out_buf + i) ^= 0xFFFF;
-
   }
-
   new_hit_cnt = afl->queued_items + afl->saved_crashes;
-
+  output_sequence = update_outputseq(output_sequence, "005");
   afl->stage_finds[STAGE_FLIP16] += new_hit_cnt - orig_hit_cnt;
-  afl->stage_cycles[STAGE_FLIP16] += afl->stage_max;
+  afl->stage_cycles[STAGE_FLIP16] += counter;
+  // pend
 #ifdef INTROSPECTION
   afl->queue_cur->stats_mutated += afl->stage_max;
 #endif
@@ -956,37 +1178,72 @@ u8 fuzz_one_original(afl_state_t *afl) {
 
   orig_hit_cnt = new_hit_cnt;
 
-  for (i = 0; i < len - 3; ++i) {
+  // pbegin
+  counter = 0;
+  // counter这里是为了UI上面的显示
+  if (strstr(output_sequence, "006"))
+    result_point = (u32)(strstr(output_sequence, "006") - output_sequence);
+  else
+    result_point = 3;
+  if (result_point / 3 % 2 == 0 && !null_output) {
+    
+    u32 check_pos = 1;
+    while (check_pos == 1) {
+      
+      counter++;
+      if (result_point >= strlen(output_sequence))
+        break;
+      if (output_sequence[result_point + 2] != '6') {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+      
+      
+      /* Let's consult the effector map... */
+      str[0] = output_sequence[result_point + 3];
+      str[1] = output_sequence[result_point + 4];
+      str[2] = output_sequence[result_point + 5];
+      str[3] = '\0';
 
-    /* Let's consult the effector map... */
-    if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)] &&
-        !eff_map[EFF_APOS(i + 2)] && !eff_map[EFF_APOS(i + 3)]) {
+      i = strtol(str, &endstr, 16);
+      if (i >= len - 3) {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+      
+      
+      result_point += 6;
+      if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)] &&
+          !eff_map[EFF_APOS(i + 2)] && !eff_map[EFF_APOS(i + 3)]) {
 
-      --afl->stage_max;
-      continue;
+        --afl->stage_max;
+        --counter;
+        continue;
+
+      }
+
+      afl->stage_cur_byte = i;
+
+      *(u32 *)(out_buf + i) ^= 0xFFFFFFFF;
+      
+      
+  #ifdef INTROSPECTION
+      snprintf(afl->mutation, sizeof(afl->mutation), "%s FLIP_BIT32-%u",
+              afl->queue_cur->fname, afl->stage_cur);
+  #endif
+
+      if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+      ++afl->stage_cur;
+
+      *(u32 *)(out_buf + i) ^= 0xFFFFFFFF;
 
     }
-
-    afl->stage_cur_byte = i;
-
-    *(u32 *)(out_buf + i) ^= 0xFFFFFFFF;
-
-#ifdef INTROSPECTION
-    snprintf(afl->mutation, sizeof(afl->mutation), "%s FLIP_BIT32-%u",
-             afl->queue_cur->fname, afl->stage_cur);
-#endif
-
-    if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
-    ++afl->stage_cur;
-
-    *(u32 *)(out_buf + i) ^= 0xFFFFFFFF;
-
   }
-
   new_hit_cnt = afl->queued_items + afl->saved_crashes;
-
+  output_sequence = update_outputseq(output_sequence, "006");
   afl->stage_finds[STAGE_FLIP32] += new_hit_cnt - orig_hit_cnt;
-  afl->stage_cycles[STAGE_FLIP32] += afl->stage_max;
+  afl->stage_cycles[STAGE_FLIP32] += counter;
+  // pend
 #ifdef INTROSPECTION
   afl->queue_cur->stats_mutated += afl->stage_max;
 #endif
@@ -1010,78 +1267,113 @@ skip_bitflip:
 
   orig_hit_cnt = new_hit_cnt;
 
-  for (i = 0; i < (u32)len; ++i) {
+  // pbegin
+  counter = 0;
+  // counter这里是为了UI上面的显示
+  if (strstr(output_sequence, "007"))
+    result_point = (u32)(strstr(output_sequence, "007") - output_sequence);
+  else
+    result_point = 3;
+  if (result_point / 3 % 2 == 0 && !null_output) {
+    
+    u32 check_pos = 1;
+    while (check_pos == 1) {
+      
+      if (result_point >= strlen(output_sequence))
+        break;
+      if (output_sequence[result_point + 2] != '7') {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+      
 
-    u8 orig = out_buf[i];
+      str[0] = output_sequence[result_point + 3];
+      str[1] = output_sequence[result_point + 4];
+      str[2] = output_sequence[result_point + 5];
+      str[3] = '\0';
 
-    /* Let's consult the effector map... */
+      i = strtol(str, &endstr, 16);
+      if (i >= len) {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+      
+      
+      counter += 2 * ARITH_MAX;
+      result_point += 6;
 
-    if (!eff_map[EFF_APOS(i)]) {
+      u8 orig = out_buf[i];
+      
+      /* Let's consult the effector map... */
 
-      afl->stage_max -= 2 * ARITH_MAX;
-      continue;
+      if (!eff_map[EFF_APOS(i)]) {
 
-    }
-
-    afl->stage_cur_byte = i;
-
-    for (j = 1; j <= ARITH_MAX; ++j) {
-
-      u8 r = orig ^ (orig + j);
-
-      /* Do arithmetic operations only if the result couldn't be a product
-         of a bitflip. */
-
-      if (!could_be_bitflip(r)) {
-
-        afl->stage_cur_val = j;
-        out_buf[i] = orig + j;
-
-#ifdef INTROSPECTION
-        snprintf(afl->mutation, sizeof(afl->mutation), "%s ARITH8+-%u-%u",
-                 afl->queue_cur->fname, i, j);
-#endif
-
-        if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
-        ++afl->stage_cur;
-
-      } else {
-
-        --afl->stage_max;
+        afl->stage_max -= 2 * ARITH_MAX;
+        counter -= 2 * ARITH_MAX;
+        continue;
 
       }
 
-      r = orig ^ (orig - j);
+      afl->stage_cur_byte = i;
 
-      if (!could_be_bitflip(r)) {
+      for (j = 1; j <= ARITH_MAX; ++j) {
 
-        afl->stage_cur_val = -j;
-        out_buf[i] = orig - j;
+        u8 r = orig ^ (orig + j);
 
-#ifdef INTROSPECTION
-        snprintf(afl->mutation, sizeof(afl->mutation), "%s ARITH8--%u-%u",
-                 afl->queue_cur->fname, i, j);
-#endif
+        /* Do arithmetic operations only if the result couldn't be a product
+          of a bitflip. */
 
-        if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
-        ++afl->stage_cur;
+        if (!could_be_bitflip(r)) {
 
-      } else {
+          afl->stage_cur_val = j;
+          out_buf[i] = orig + j;
 
-        --afl->stage_max;
+  #ifdef INTROSPECTION
+          snprintf(afl->mutation, sizeof(afl->mutation), "%s ARITH8+-%u-%u",
+                  afl->queue_cur->fname, i, j);
+  #endif
+
+          if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+          ++afl->stage_cur;
+
+        } else {
+
+          --afl->stage_max;
+
+        }
+
+        r = orig ^ (orig - j);
+
+        if (!could_be_bitflip(r)) {
+
+          afl->stage_cur_val = -j;
+          out_buf[i] = orig - j;
+
+  #ifdef INTROSPECTION
+          snprintf(afl->mutation, sizeof(afl->mutation), "%s ARITH8--%u-%u",
+                  afl->queue_cur->fname, i, j);
+  #endif
+
+          if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+          ++afl->stage_cur;
+
+        } else {
+
+          --afl->stage_max;
+
+        }
+
+        out_buf[i] = orig;
 
       }
 
-      out_buf[i] = orig;
-
     }
-
   }
-
   new_hit_cnt = afl->queued_items + afl->saved_crashes;
-
+  output_sequence = update_outputseq(output_sequence, "007");
   afl->stage_finds[STAGE_ARITH8] += new_hit_cnt - orig_hit_cnt;
-  afl->stage_cycles[STAGE_ARITH8] += afl->stage_max;
+  afl->stage_cycles[STAGE_ARITH8] += counter;
+  // pend
 #ifdef INTROSPECTION
   afl->queue_cur->stats_mutated += afl->stage_max;
 #endif
@@ -1097,124 +1389,159 @@ skip_bitflip:
 
   orig_hit_cnt = new_hit_cnt;
 
-  for (i = 0; i < (u32)len - 1; ++i) {
+  // pbegin
+  counter = 0;
+  // counter这里是为了UI上面的显示
+  if (strstr(output_sequence, "008"))
+    result_point = (u32)(strstr(output_sequence, "008") - output_sequence);
+  else
+    result_point = 3;
+  if (result_point / 3 % 2 == 0 && !null_output) {
+    
+    u32 check_pos = 1;
+    while (check_pos == 1) {
+      
+      if (result_point >= strlen(output_sequence))
+        break;
+      if (output_sequence[result_point + 2] != '8') {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+      
 
-    u16 orig = *(u16 *)(out_buf + i);
+      str[0] = output_sequence[result_point + 3];
+      str[1] = output_sequence[result_point + 4];
+      str[2] = output_sequence[result_point + 5];
+      str[3] = '\0';
 
-    /* Let's consult the effector map... */
+      i = strtol(str, &endstr, 16);
+      if (i >= len - 1) {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+      
+      
+      counter += 4 * ARITH_MAX;
+      result_point += 6;
 
-    if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)]) {
+      u16 orig = *(u16 *)(out_buf + i);
 
-      afl->stage_max -= 4 * ARITH_MAX;
-      continue;
+      /* Let's consult the effector map... */
+
+      if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)]) {
+
+        afl->stage_max -= 4 * ARITH_MAX;
+        counter -= 4 * ARITH_MAX;
+        continue;
+
+      }
+
+      afl->stage_cur_byte = i;
+
+      for (j = 1; j <= ARITH_MAX; ++j) {
+
+        u16 r1 = orig ^ (orig + j), r2 = orig ^ (orig - j),
+            r3 = orig ^ SWAP16(SWAP16(orig) + j),
+            r4 = orig ^ SWAP16(SWAP16(orig) - j);
+
+        /* Try little endian addition and subtraction first. Do it only
+          if the operation would affect more than one byte (hence the
+          & 0xff overflow checks) and if it couldn't be a product of
+          a bitflip. */
+
+        afl->stage_val_type = STAGE_VAL_LE;
+
+        if ((orig & 0xff) + j > 0xff && !could_be_bitflip(r1)) {
+
+          afl->stage_cur_val = j;
+          *(u16 *)(out_buf + i) = orig + j;
+
+  #ifdef INTROSPECTION
+          snprintf(afl->mutation, sizeof(afl->mutation), "%s ARITH16+-%u-%u",
+                  afl->queue_cur->fname, i, j);
+  #endif
+
+          if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+          ++afl->stage_cur;
+
+        } else {
+
+          --afl->stage_max;
+
+        }
+
+        if ((orig & 0xff) < j && !could_be_bitflip(r2)) {
+
+          afl->stage_cur_val = -j;
+          *(u16 *)(out_buf + i) = orig - j;
+
+  #ifdef INTROSPECTION
+          snprintf(afl->mutation, sizeof(afl->mutation), "%s ARITH16--%u-%u",
+                  afl->queue_cur->fname, i, j);
+  #endif
+
+          if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+          ++afl->stage_cur;
+
+        } else {
+
+          --afl->stage_max;
+
+        }
+
+        /* Big endian comes next. Same deal. */
+
+        afl->stage_val_type = STAGE_VAL_BE;
+
+        if ((orig >> 8) + j > 0xff && !could_be_bitflip(r3)) {
+
+          afl->stage_cur_val = j;
+          *(u16 *)(out_buf + i) = SWAP16(SWAP16(orig) + j);
+
+  #ifdef INTROSPECTION
+          snprintf(afl->mutation, sizeof(afl->mutation), "%s ARITH16+BE-%u-%u",
+                  afl->queue_cur->fname, i, j);
+  #endif
+
+          if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+          ++afl->stage_cur;
+
+        } else {
+
+          --afl->stage_max;
+
+        }
+
+        if ((orig >> 8) < j && !could_be_bitflip(r4)) {
+
+          afl->stage_cur_val = -j;
+          *(u16 *)(out_buf + i) = SWAP16(SWAP16(orig) - j);
+
+  #ifdef INTROSPECTION
+          snprintf(afl->mutation, sizeof(afl->mutation), "%s ARITH16_BE-%u-%u",
+                  afl->queue_cur->fname, i, j);
+  #endif
+
+          if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+          ++afl->stage_cur;
+
+        } else {
+
+          --afl->stage_max;
+
+        }
+
+        *(u16 *)(out_buf + i) = orig;
+
+      }
 
     }
-
-    afl->stage_cur_byte = i;
-
-    for (j = 1; j <= ARITH_MAX; ++j) {
-
-      u16 r1 = orig ^ (orig + j), r2 = orig ^ (orig - j),
-          r3 = orig ^ SWAP16(SWAP16(orig) + j),
-          r4 = orig ^ SWAP16(SWAP16(orig) - j);
-
-      /* Try little endian addition and subtraction first. Do it only
-         if the operation would affect more than one byte (hence the
-         & 0xff overflow checks) and if it couldn't be a product of
-         a bitflip. */
-
-      afl->stage_val_type = STAGE_VAL_LE;
-
-      if ((orig & 0xff) + j > 0xff && !could_be_bitflip(r1)) {
-
-        afl->stage_cur_val = j;
-        *(u16 *)(out_buf + i) = orig + j;
-
-#ifdef INTROSPECTION
-        snprintf(afl->mutation, sizeof(afl->mutation), "%s ARITH16+-%u-%u",
-                 afl->queue_cur->fname, i, j);
-#endif
-
-        if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
-        ++afl->stage_cur;
-
-      } else {
-
-        --afl->stage_max;
-
-      }
-
-      if ((orig & 0xff) < j && !could_be_bitflip(r2)) {
-
-        afl->stage_cur_val = -j;
-        *(u16 *)(out_buf + i) = orig - j;
-
-#ifdef INTROSPECTION
-        snprintf(afl->mutation, sizeof(afl->mutation), "%s ARITH16--%u-%u",
-                 afl->queue_cur->fname, i, j);
-#endif
-
-        if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
-        ++afl->stage_cur;
-
-      } else {
-
-        --afl->stage_max;
-
-      }
-
-      /* Big endian comes next. Same deal. */
-
-      afl->stage_val_type = STAGE_VAL_BE;
-
-      if ((orig >> 8) + j > 0xff && !could_be_bitflip(r3)) {
-
-        afl->stage_cur_val = j;
-        *(u16 *)(out_buf + i) = SWAP16(SWAP16(orig) + j);
-
-#ifdef INTROSPECTION
-        snprintf(afl->mutation, sizeof(afl->mutation), "%s ARITH16+BE-%u-%u",
-                 afl->queue_cur->fname, i, j);
-#endif
-
-        if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
-        ++afl->stage_cur;
-
-      } else {
-
-        --afl->stage_max;
-
-      }
-
-      if ((orig >> 8) < j && !could_be_bitflip(r4)) {
-
-        afl->stage_cur_val = -j;
-        *(u16 *)(out_buf + i) = SWAP16(SWAP16(orig) - j);
-
-#ifdef INTROSPECTION
-        snprintf(afl->mutation, sizeof(afl->mutation), "%s ARITH16_BE-%u-%u",
-                 afl->queue_cur->fname, i, j);
-#endif
-
-        if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
-        ++afl->stage_cur;
-
-      } else {
-
-        --afl->stage_max;
-
-      }
-
-      *(u16 *)(out_buf + i) = orig;
-
-    }
-
   }
-
   new_hit_cnt = afl->queued_items + afl->saved_crashes;
-
+  output_sequence = update_outputseq(output_sequence, "008");
   afl->stage_finds[STAGE_ARITH16] += new_hit_cnt - orig_hit_cnt;
-  afl->stage_cycles[STAGE_ARITH16] += afl->stage_max;
+  afl->stage_cycles[STAGE_ARITH16] += counter;
+  // pend
 #ifdef INTROSPECTION
   afl->queue_cur->stats_mutated += afl->stage_max;
 #endif
@@ -1230,123 +1557,159 @@ skip_bitflip:
 
   orig_hit_cnt = new_hit_cnt;
 
-  for (i = 0; i < (u32)len - 3; ++i) {
+  // pbegin
+  counter = 0;
+  // counter这里是为了UI上面的显示
+  if (strstr(output_sequence, "009"))
+    result_point = (u32)(strstr(output_sequence, "009") - output_sequence);
+  else
+    result_point = 3;
+  if (result_point / 3 % 2 == 0 && !null_output) {
+    
+    u32 check_pos = 1;
+    while (check_pos == 1) {
+      
+      if (result_point >= strlen(output_sequence))
+        break;
+      if (output_sequence[result_point + 2] != '9') {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+      
 
-    u32 orig = *(u32 *)(out_buf + i);
+      str[0] = output_sequence[result_point + 3];
+      str[1] = output_sequence[result_point + 4];
+      str[2] = output_sequence[result_point + 5];
+      str[3] = '\0';
 
-    /* Let's consult the effector map... */
+      i = strtol(str, &endstr, 16);
+      if (i >= len - 3) {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+      
+      
+      counter += 4 * ARITH_MAX;
+      result_point += 6;
 
-    if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)] &&
-        !eff_map[EFF_APOS(i + 2)] && !eff_map[EFF_APOS(i + 3)]) {
+      u32 orig = *(u32 *)(out_buf + i);
 
-      afl->stage_max -= 4 * ARITH_MAX;
-      continue;
+      /* Let's consult the effector map... */
+
+      if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)] &&
+          !eff_map[EFF_APOS(i + 2)] && !eff_map[EFF_APOS(i + 3)]) {
+
+        afl->stage_max -= 4 * ARITH_MAX;
+        counter -= 4 * ARITH_MAX;
+        continue;
+
+      }
+
+      afl->stage_cur_byte = i;
+
+      for (j = 1; j <= ARITH_MAX; ++j) {
+
+        u32 r1 = orig ^ (orig + j), r2 = orig ^ (orig - j),
+            r3 = orig ^ SWAP32(SWAP32(orig) + j),
+            r4 = orig ^ SWAP32(SWAP32(orig) - j);
+
+        /* Little endian first. Same deal as with 16-bit: we only want to
+          try if the operation would have effect on more than two bytes. */
+
+        afl->stage_val_type = STAGE_VAL_LE;
+
+        if ((orig & 0xffff) + j > 0xffff && !could_be_bitflip(r1)) {
+
+          afl->stage_cur_val = j;
+          *(u32 *)(out_buf + i) = orig + j;
+
+  #ifdef INTROSPECTION
+          snprintf(afl->mutation, sizeof(afl->mutation), "%s ARITH32+-%u-%u",
+                  afl->queue_cur->fname, i, j);
+  #endif
+
+          if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+          ++afl->stage_cur;
+
+        } else {
+
+          --afl->stage_max;
+
+        }
+
+        if ((orig & 0xffff) < (u32)j && !could_be_bitflip(r2)) {
+
+          afl->stage_cur_val = -j;
+          *(u32 *)(out_buf + i) = orig - j;
+
+  #ifdef INTROSPECTION
+          snprintf(afl->mutation, sizeof(afl->mutation), "%s ARITH32_-%u-%u",
+                  afl->queue_cur->fname, i, j);
+  #endif
+
+          if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+          ++afl->stage_cur;
+
+        } else {
+
+          --afl->stage_max;
+
+        }
+
+        /* Big endian next. */
+
+        afl->stage_val_type = STAGE_VAL_BE;
+
+        if ((SWAP32(orig) & 0xffff) + j > 0xffff && !could_be_bitflip(r3)) {
+
+          afl->stage_cur_val = j;
+          *(u32 *)(out_buf + i) = SWAP32(SWAP32(orig) + j);
+
+  #ifdef INTROSPECTION
+          snprintf(afl->mutation, sizeof(afl->mutation), "%s ARITH32+BE-%u-%u",
+                  afl->queue_cur->fname, i, j);
+  #endif
+
+          if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+          ++afl->stage_cur;
+
+        } else {
+
+          --afl->stage_max;
+
+        }
+
+        if ((SWAP32(orig) & 0xffff) < (u32)j && !could_be_bitflip(r4)) {
+
+          afl->stage_cur_val = -j;
+          *(u32 *)(out_buf + i) = SWAP32(SWAP32(orig) - j);
+
+  #ifdef INTROSPECTION
+          snprintf(afl->mutation, sizeof(afl->mutation), "%s ARITH32_BE-%u-%u",
+                  afl->queue_cur->fname, i, j);
+  #endif
+
+          if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+          ++afl->stage_cur;
+
+        } else {
+
+          --afl->stage_max;
+
+        }
+
+        *(u32 *)(out_buf + i) = orig;
+
+      }
 
     }
-
-    afl->stage_cur_byte = i;
-
-    for (j = 1; j <= ARITH_MAX; ++j) {
-
-      u32 r1 = orig ^ (orig + j), r2 = orig ^ (orig - j),
-          r3 = orig ^ SWAP32(SWAP32(orig) + j),
-          r4 = orig ^ SWAP32(SWAP32(orig) - j);
-
-      /* Little endian first. Same deal as with 16-bit: we only want to
-         try if the operation would have effect on more than two bytes. */
-
-      afl->stage_val_type = STAGE_VAL_LE;
-
-      if ((orig & 0xffff) + j > 0xffff && !could_be_bitflip(r1)) {
-
-        afl->stage_cur_val = j;
-        *(u32 *)(out_buf + i) = orig + j;
-
-#ifdef INTROSPECTION
-        snprintf(afl->mutation, sizeof(afl->mutation), "%s ARITH32+-%u-%u",
-                 afl->queue_cur->fname, i, j);
-#endif
-
-        if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
-        ++afl->stage_cur;
-
-      } else {
-
-        --afl->stage_max;
-
-      }
-
-      if ((orig & 0xffff) < (u32)j && !could_be_bitflip(r2)) {
-
-        afl->stage_cur_val = -j;
-        *(u32 *)(out_buf + i) = orig - j;
-
-#ifdef INTROSPECTION
-        snprintf(afl->mutation, sizeof(afl->mutation), "%s ARITH32_-%u-%u",
-                 afl->queue_cur->fname, i, j);
-#endif
-
-        if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
-        ++afl->stage_cur;
-
-      } else {
-
-        --afl->stage_max;
-
-      }
-
-      /* Big endian next. */
-
-      afl->stage_val_type = STAGE_VAL_BE;
-
-      if ((SWAP32(orig) & 0xffff) + j > 0xffff && !could_be_bitflip(r3)) {
-
-        afl->stage_cur_val = j;
-        *(u32 *)(out_buf + i) = SWAP32(SWAP32(orig) + j);
-
-#ifdef INTROSPECTION
-        snprintf(afl->mutation, sizeof(afl->mutation), "%s ARITH32+BE-%u-%u",
-                 afl->queue_cur->fname, i, j);
-#endif
-
-        if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
-        ++afl->stage_cur;
-
-      } else {
-
-        --afl->stage_max;
-
-      }
-
-      if ((SWAP32(orig) & 0xffff) < (u32)j && !could_be_bitflip(r4)) {
-
-        afl->stage_cur_val = -j;
-        *(u32 *)(out_buf + i) = SWAP32(SWAP32(orig) - j);
-
-#ifdef INTROSPECTION
-        snprintf(afl->mutation, sizeof(afl->mutation), "%s ARITH32_BE-%u-%u",
-                 afl->queue_cur->fname, i, j);
-#endif
-
-        if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
-        ++afl->stage_cur;
-
-      } else {
-
-        --afl->stage_max;
-
-      }
-
-      *(u32 *)(out_buf + i) = orig;
-
-    }
-
   }
 
   new_hit_cnt = afl->queued_items + afl->saved_crashes;
-
+  output_sequence = update_outputseq(output_sequence, "009");
   afl->stage_finds[STAGE_ARITH32] += new_hit_cnt - orig_hit_cnt;
-  afl->stage_cycles[STAGE_ARITH32] += afl->stage_max;
+  afl->stage_cycles[STAGE_ARITH32] += counter;
+  // pend
 #ifdef INTROSPECTION
   afl->queue_cur->stats_mutated += afl->stage_max;
 #endif
@@ -1366,56 +1729,90 @@ skip_arith:
 
   orig_hit_cnt = new_hit_cnt;
 
-  /* Setting 8-bit integers. */
+  // pbegin
+  counter = 0;
+  // counter这里是为了UI上面的显示
+  if (strstr(output_sequence, "00a"))
+    result_point = (u32)(strstr(output_sequence, "00a") - output_sequence);
+  else
+    result_point = 3;
+  if (result_point / 3 % 2 == 0 && !null_output) {
+    
+    u32 check_pos = 1;
+    /* Setting 8-bit integers. */
 
-  for (i = 0; i < (u32)len; ++i) {
+    while(check_pos == 1) {
+      if (result_point >= strlen(output_sequence))
+        break;
+      if (output_sequence[result_point + 2] != 'a') {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+      
 
-    u8 orig = out_buf[i];
+      str[0] = output_sequence[result_point + 3];
+      str[1] = output_sequence[result_point + 4];
+      str[2] = output_sequence[result_point + 5];
+      str[3] = '\0';
 
-    /* Let's consult the effector map... */
+      i = strtol(str, &endstr, 16);
+      if (i >= len) {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+      
+      
+      counter += sizeof(interesting_8);
+      result_point += 6;
 
-    if (!eff_map[EFF_APOS(i)]) {
+      u8 orig = out_buf[i];
 
-      afl->stage_max -= sizeof(interesting_8);
-      continue;
+      /* Let's consult the effector map... */
 
-    }
+      if (!eff_map[EFF_APOS(i)]) {
 
-    afl->stage_cur_byte = i;
-
-    for (j = 0; j < (u32)sizeof(interesting_8); ++j) {
-
-      /* Skip if the value could be a product of bitflips or arithmetics. */
-
-      if (could_be_bitflip(orig ^ (u8)interesting_8[j]) ||
-          could_be_arith(orig, (u8)interesting_8[j], 1)) {
-
-        --afl->stage_max;
+        afl->stage_max -= sizeof(interesting_8);
+        counter -= sizeof(interesting_8);
         continue;
 
       }
 
-      afl->stage_cur_val = interesting_8[j];
-      out_buf[i] = interesting_8[j];
+      afl->stage_cur_byte = i;
 
-#ifdef INTROSPECTION
-      snprintf(afl->mutation, sizeof(afl->mutation), "%s INTERESTING8_%u_%u",
-               afl->queue_cur->fname, i, j);
-#endif
+      for (j = 0; j < (u32)sizeof(interesting_8); ++j) {
 
-      if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+        /* Skip if the value could be a product of bitflips or arithmetics. */
 
-      out_buf[i] = orig;
-      ++afl->stage_cur;
+        if (could_be_bitflip(orig ^ (u8)interesting_8[j]) ||
+            could_be_arith(orig, (u8)interesting_8[j], 1)) {
+
+          --afl->stage_max;
+          continue;
+
+        }
+
+        afl->stage_cur_val = interesting_8[j];
+        out_buf[i] = interesting_8[j];
+
+  #ifdef INTROSPECTION
+        snprintf(afl->mutation, sizeof(afl->mutation), "%s INTERESTING8_%u_%u",
+                afl->queue_cur->fname, i, j);
+  #endif
+
+        if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+
+        out_buf[i] = orig;
+        ++afl->stage_cur;
+
+      }
 
     }
-
   }
-
   new_hit_cnt = afl->queued_items + afl->saved_crashes;
-
+  output_sequence = update_outputseq(output_sequence, "00a");
   afl->stage_finds[STAGE_INTEREST8] += new_hit_cnt - orig_hit_cnt;
-  afl->stage_cycles[STAGE_INTEREST8] += afl->stage_max;
+  afl->stage_cycles[STAGE_INTEREST8] += counter;
+  // pend
 #ifdef INTROSPECTION
   afl->queue_cur->stats_mutated += afl->stage_max;
 #endif
@@ -1431,82 +1828,116 @@ skip_arith:
 
   orig_hit_cnt = new_hit_cnt;
 
-  for (i = 0; i < len - 1; ++i) {
+  // pbegin
+  counter = 0;
+  // counter这里是为了UI上面的显示
+  if (strstr(output_sequence, "00b"))
+    result_point = (u32)(strstr(output_sequence, "00b") - output_sequence);
+  else
+    result_point = 3;
+  if (result_point / 3 % 2 == 0 && !null_output) {
+    
+    u32 check_pos = 1;
+    while (check_pos == 1) {
+      
+      if (result_point >= strlen(output_sequence))
+        break;
+      if (output_sequence[result_point + 2] != 'b') {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+      
 
-    u16 orig = *(u16 *)(out_buf + i);
+      str[0] = output_sequence[result_point + 3];
+      str[1] = output_sequence[result_point + 4];
+      str[2] = output_sequence[result_point + 5];
+      str[3] = '\0';
 
-    /* Let's consult the effector map... */
+      i = strtol(str, &endstr, 16);
+      if (i >= len - 1) {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+      
+      
+      counter += 2 * (sizeof(interesting_16) >> 1);
+      result_point += 6;
 
-    if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)]) {
+      u16 orig = *(u16 *)(out_buf + i);
 
-      afl->stage_max -= sizeof(interesting_16);
-      continue;
+      /* Let's consult the effector map... */
 
-    }
+      if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)]) {
 
-    afl->stage_cur_byte = i;
-
-    for (j = 0; j < sizeof(interesting_16) / 2; ++j) {
-
-      afl->stage_cur_val = interesting_16[j];
-
-      /* Skip if this could be a product of a bitflip, arithmetics,
-         or single-byte interesting value insertion. */
-
-      if (!could_be_bitflip(orig ^ (u16)interesting_16[j]) &&
-          !could_be_arith(orig, (u16)interesting_16[j], 2) &&
-          !could_be_interest(orig, (u16)interesting_16[j], 2, 0)) {
-
-        afl->stage_val_type = STAGE_VAL_LE;
-
-        *(u16 *)(out_buf + i) = interesting_16[j];
-
-#ifdef INTROSPECTION
-        snprintf(afl->mutation, sizeof(afl->mutation), "%s INTERESTING16_%u_%u",
-                 afl->queue_cur->fname, i, j);
-#endif
-
-        if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
-        ++afl->stage_cur;
-
-      } else {
-
-        --afl->stage_max;
+        afl->stage_max -= sizeof(interesting_16);
+        counter -= sizeof(interesting_16);
+        continue;
 
       }
 
-      if ((u16)interesting_16[j] != SWAP16(interesting_16[j]) &&
-          !could_be_bitflip(orig ^ SWAP16(interesting_16[j])) &&
-          !could_be_arith(orig, SWAP16(interesting_16[j]), 2) &&
-          !could_be_interest(orig, SWAP16(interesting_16[j]), 2, 1)) {
+      afl->stage_cur_byte = i;
 
-        afl->stage_val_type = STAGE_VAL_BE;
+      for (j = 0; j < sizeof(interesting_16) / 2; ++j) {
 
-#ifdef INTROSPECTION
-        snprintf(afl->mutation, sizeof(afl->mutation),
-                 "%s INTERESTING16BE_%u_%u", afl->queue_cur->fname, i, j);
-#endif
+        afl->stage_cur_val = interesting_16[j];
 
-        *(u16 *)(out_buf + i) = SWAP16(interesting_16[j]);
-        if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
-        ++afl->stage_cur;
+        /* Skip if this could be a product of a bitflip, arithmetics,
+          or single-byte interesting value insertion. */
 
-      } else {
+        if (!could_be_bitflip(orig ^ (u16)interesting_16[j]) &&
+            !could_be_arith(orig, (u16)interesting_16[j], 2) &&
+            !could_be_interest(orig, (u16)interesting_16[j], 2, 0)) {
 
-        --afl->stage_max;
+          afl->stage_val_type = STAGE_VAL_LE;
+
+          *(u16 *)(out_buf + i) = interesting_16[j];
+
+  #ifdef INTROSPECTION
+          snprintf(afl->mutation, sizeof(afl->mutation), "%s INTERESTING16_%u_%u",
+                  afl->queue_cur->fname, i, j);
+  #endif
+
+          if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+          ++afl->stage_cur;
+
+        } else {
+
+          --afl->stage_max;
+
+        }
+
+        if ((u16)interesting_16[j] != SWAP16(interesting_16[j]) &&
+            !could_be_bitflip(orig ^ SWAP16(interesting_16[j])) &&
+            !could_be_arith(orig, SWAP16(interesting_16[j]), 2) &&
+            !could_be_interest(orig, SWAP16(interesting_16[j]), 2, 1)) {
+
+          afl->stage_val_type = STAGE_VAL_BE;
+
+  #ifdef INTROSPECTION
+          snprintf(afl->mutation, sizeof(afl->mutation),
+                  "%s INTERESTING16BE_%u_%u", afl->queue_cur->fname, i, j);
+  #endif
+
+          *(u16 *)(out_buf + i) = SWAP16(interesting_16[j]);
+          if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+          ++afl->stage_cur;
+
+        } else {
+
+          --afl->stage_max;
+
+        }
 
       }
 
+      *(u16 *)(out_buf + i) = orig;
+
     }
-
-    *(u16 *)(out_buf + i) = orig;
-
   }
-
   new_hit_cnt = afl->queued_items + afl->saved_crashes;
-
+  output_sequence = update_outputseq(output_sequence, "00b");
   afl->stage_finds[STAGE_INTEREST16] += new_hit_cnt - orig_hit_cnt;
-  afl->stage_cycles[STAGE_INTEREST16] += afl->stage_max;
+  afl->stage_cycles[STAGE_INTEREST16] += counter;
 #ifdef INTROSPECTION
   afl->queue_cur->stats_mutated += afl->stage_max;
 #endif
@@ -1522,83 +1953,118 @@ skip_arith:
 
   orig_hit_cnt = new_hit_cnt;
 
-  for (i = 0; i < len - 3; i++) {
+  // pbegin
+  counter = 0;
+  // counter这里是为了UI上面的显示
+  if (strstr(output_sequence, "00c"))
+    result_point = (u32)(strstr(output_sequence, "00c") - output_sequence);
+  else
+    result_point = 3;
+  if (result_point / 3 % 2 == 0 && !null_output) {
+    
+    u32 check_pos = 1;
+    while (check_pos == 1) {
+      
+      if (result_point >= strlen(output_sequence))
+        break;
+      if (output_sequence[result_point + 2] != 'c') {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+      
 
-    u32 orig = *(u32 *)(out_buf + i);
+      str[0] = output_sequence[result_point + 3];
+      str[1] = output_sequence[result_point + 4];
+      str[2] = output_sequence[result_point + 5];
+      str[3] = '\0';
 
-    /* Let's consult the effector map... */
+      i = strtol(str, &endstr, 16);
+      if (i >= len - 3) {
+        output_sequence = output_sequence + result_point;
+        break;
+      }
+      
+      
+      counter += 2 * (sizeof(interesting_32) >> 2);
+      result_point += 6;
 
-    if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)] &&
-        !eff_map[EFF_APOS(i + 2)] && !eff_map[EFF_APOS(i + 3)]) {
+      u32 orig = *(u32 *)(out_buf + i);
 
-      afl->stage_max -= sizeof(interesting_32) >> 1;
-      continue;
+      /* Let's consult the effector map... */
 
-    }
+      if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)] &&
+          !eff_map[EFF_APOS(i + 2)] && !eff_map[EFF_APOS(i + 3)]) {
 
-    afl->stage_cur_byte = i;
-
-    for (j = 0; j < sizeof(interesting_32) / 4; ++j) {
-
-      afl->stage_cur_val = interesting_32[j];
-
-      /* Skip if this could be a product of a bitflip, arithmetics,
-         or word interesting value insertion. */
-
-      if (!could_be_bitflip(orig ^ (u32)interesting_32[j]) &&
-          !could_be_arith(orig, interesting_32[j], 4) &&
-          !could_be_interest(orig, interesting_32[j], 4, 0)) {
-
-        afl->stage_val_type = STAGE_VAL_LE;
-
-        *(u32 *)(out_buf + i) = interesting_32[j];
-
-#ifdef INTROSPECTION
-        snprintf(afl->mutation, sizeof(afl->mutation), "%s INTERESTING32_%u_%u",
-                 afl->queue_cur->fname, i, j);
-#endif
-
-        if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
-        ++afl->stage_cur;
-
-      } else {
-
-        --afl->stage_max;
+        afl->stage_max -= sizeof(interesting_32) >> 1;
+        counter -= sizeof(interesting_32) >> 1;
+        continue;
 
       }
 
-      if ((u32)interesting_32[j] != SWAP32(interesting_32[j]) &&
-          !could_be_bitflip(orig ^ SWAP32(interesting_32[j])) &&
-          !could_be_arith(orig, SWAP32(interesting_32[j]), 4) &&
-          !could_be_interest(orig, SWAP32(interesting_32[j]), 4, 1)) {
+      afl->stage_cur_byte = i;
 
-        afl->stage_val_type = STAGE_VAL_BE;
+      for (j = 0; j < sizeof(interesting_32) / 4; ++j) {
 
-#ifdef INTROSPECTION
-        snprintf(afl->mutation, sizeof(afl->mutation),
-                 "%s INTERESTING32BE_%u_%u", afl->queue_cur->fname, i, j);
-#endif
+        afl->stage_cur_val = interesting_32[j];
 
-        *(u32 *)(out_buf + i) = SWAP32(interesting_32[j]);
-        if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
-        ++afl->stage_cur;
+        /* Skip if this could be a product of a bitflip, arithmetics,
+          or word interesting value insertion. */
 
-      } else {
+        if (!could_be_bitflip(orig ^ (u32)interesting_32[j]) &&
+            !could_be_arith(orig, interesting_32[j], 4) &&
+            !could_be_interest(orig, interesting_32[j], 4, 0)) {
 
-        --afl->stage_max;
+          afl->stage_val_type = STAGE_VAL_LE;
+
+          *(u32 *)(out_buf + i) = interesting_32[j];
+
+  #ifdef INTROSPECTION
+          snprintf(afl->mutation, sizeof(afl->mutation), "%s INTERESTING32_%u_%u",
+                  afl->queue_cur->fname, i, j);
+  #endif
+
+          if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+          ++afl->stage_cur;
+
+        } else {
+
+          --afl->stage_max;
+
+        }
+
+        if ((u32)interesting_32[j] != SWAP32(interesting_32[j]) &&
+            !could_be_bitflip(orig ^ SWAP32(interesting_32[j])) &&
+            !could_be_arith(orig, SWAP32(interesting_32[j]), 4) &&
+            !could_be_interest(orig, SWAP32(interesting_32[j]), 4, 1)) {
+
+          afl->stage_val_type = STAGE_VAL_BE;
+
+  #ifdef INTROSPECTION
+          snprintf(afl->mutation, sizeof(afl->mutation),
+                  "%s INTERESTING32BE_%u_%u", afl->queue_cur->fname, i, j);
+  #endif
+
+          *(u32 *)(out_buf + i) = SWAP32(interesting_32[j]);
+          if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+          ++afl->stage_cur;
+
+        } else {
+
+          --afl->stage_max;
+
+        }
 
       }
 
+      *(u32 *)(out_buf + i) = orig;
+
     }
-
-    *(u32 *)(out_buf + i) = orig;
-
   }
-
   new_hit_cnt = afl->queued_items + afl->saved_crashes;
-
+  output_sequence = update_outputseq(output_sequence, "00c");
   afl->stage_finds[STAGE_INTEREST32] += new_hit_cnt - orig_hit_cnt;
-  afl->stage_cycles[STAGE_INTEREST32] += afl->stage_max;
+  afl->stage_cycles[STAGE_INTEREST32] += counter;
+  // pend
 #ifdef INTROSPECTION
   afl->queue_cur->stats_mutated += afl->stage_max;
 #endif
@@ -3734,7 +4200,6 @@ static u8 mopt_common_fuzzing(afl_state_t *afl, MOpt_globals_t MOpt_globals) {
   for (afl->stage_cur = 0; afl->stage_cur < afl->stage_max; ++afl->stage_cur) {
 
     afl->stage_cur_byte = afl->stage_cur >> 3;
-
     FLIP_BIT(out_buf, afl->stage_cur);
 
 #ifdef INTROSPECTION
@@ -3742,7 +4207,6 @@ static u8 mopt_common_fuzzing(afl_state_t *afl, MOpt_globals_t MOpt_globals) {
              afl->queue_cur->fname, afl->stage_cur);
 #endif
     if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
-
     FLIP_BIT(out_buf, afl->stage_cur);
 
     /* While flipping the least significant bit in every byte, pull of an extra
@@ -3849,7 +4313,6 @@ static u8 mopt_common_fuzzing(afl_state_t *afl, MOpt_globals_t MOpt_globals) {
   for (afl->stage_cur = 0; afl->stage_cur < afl->stage_max; ++afl->stage_cur) {
 
     afl->stage_cur_byte = afl->stage_cur >> 3;
-
     FLIP_BIT(out_buf, afl->stage_cur);
     FLIP_BIT(out_buf, afl->stage_cur + 1);
 
@@ -3858,7 +4321,6 @@ static u8 mopt_common_fuzzing(afl_state_t *afl, MOpt_globals_t MOpt_globals) {
              afl->queue_cur->fname, afl->stage_cur);
 #endif
     if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
-
     FLIP_BIT(out_buf, afl->stage_cur);
     FLIP_BIT(out_buf, afl->stage_cur + 1);
 
@@ -3883,7 +4345,6 @@ static u8 mopt_common_fuzzing(afl_state_t *afl, MOpt_globals_t MOpt_globals) {
   for (afl->stage_cur = 0; afl->stage_cur < afl->stage_max; ++afl->stage_cur) {
 
     afl->stage_cur_byte = afl->stage_cur >> 3;
-
     FLIP_BIT(out_buf, afl->stage_cur);
     FLIP_BIT(out_buf, afl->stage_cur + 1);
     FLIP_BIT(out_buf, afl->stage_cur + 2);
@@ -3894,7 +4355,6 @@ static u8 mopt_common_fuzzing(afl_state_t *afl, MOpt_globals_t MOpt_globals) {
              afl->queue_cur->fname, afl->stage_cur);
 #endif
     if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
-
     FLIP_BIT(out_buf, afl->stage_cur);
     FLIP_BIT(out_buf, afl->stage_cur + 1);
     FLIP_BIT(out_buf, afl->stage_cur + 2);
