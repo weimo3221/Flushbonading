@@ -53,8 +53,8 @@ directory_path = r'D:\queue' + str(num) + '\\'
 # 然后执行下面命令生成csv文件
 python csv_output.py
 ```
-
 **如果生成的csv行数过少，也就是数据集过少，可以针对同一个程序多次AFL Fuzz得到相应的queue，然后设置queue1，queue2，...，然后修改csv_output.py中的数字对应多少个queue文件夹，从而保证数据集够大**
+
 2. 利用csv文件进行模型的训练
 
 ```sh
