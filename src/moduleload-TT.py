@@ -134,5 +134,9 @@ def writeerr(mes):
 
 if __name__ == '__main__':
     data = readdoc()
-    result = run(data)
+    try:
+        result = run(data)
+    except Exception as e:
+        print(e)
+        result = ''
     writedoc(result)
