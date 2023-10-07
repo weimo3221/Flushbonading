@@ -9,6 +9,8 @@
 - - fuzz-all.sh: 环境变量`TARGET_FILE`存放待fuzz文件，`TARGET_BIN`存放待fuzz固件，build完成后，进入docker运行
 - - switchAFL.sh: 优化漏洞检测系统中进行AFL++的源码切换
 - src: 加载模型的相关代码
+- vuln_example：漏洞复现实例
+- 模型训练：用于训练模型的代码文件夹
 - Dockerfile: docker部署命令，主要包含
 - - 必要的库的下载，需要联网
 - - 环境的迁移，上述所有目录均会移动至docker虚拟机中
